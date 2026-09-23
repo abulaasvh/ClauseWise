@@ -68,6 +68,12 @@ export interface ChatMessage {
   citations?: Citation[];
   hallucination?: HallucinationAudit;
   timestamp: string;
+  /** Set to true when this message represents an API/AI error rather than a real answer */
+  isApiError?: boolean;
+  /** The ErrorCategory returned by the server (e.g. "QUOTA_EXCEEDED") */
+  errorCategory?: string;
+  /** The requestId from the server for log correlation */
+  errorRequestId?: string;
 }
 
 export interface ClauseComparisonItem {

@@ -259,7 +259,7 @@ export async function generateWithResilientLLM(
   }
 
   console.error("[LLM] Both Gemini and Groq fallback failed to produce a response.");
-  throw new Error("AI service temporarily unavailable, please try again.");
+  throw new Error("ALL_PROVIDERS_DOWN: All configured AI providers (Gemini, Groq) failed to produce a response.");
 }
 
 /**

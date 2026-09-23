@@ -3,11 +3,12 @@ import { getDocumentAsync } from "@/lib/docstore";
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  // Next.js 15+: params is now a Promise — must be awaited
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const docId = params.id;
-    const doc = await getDocumentAsync(docId);
+    const { id } = await context.params;
+    const doc = await getDocumentAsync(id);
     if (!doc) {
       return NextResponse.json({ error: "Document not found" }, { status: 404 });
     }

@@ -279,11 +279,11 @@ export async function getQueryEmbedding(text: string): Promise<number[] | null> 
     return openAiEmb;
   }
 
-  // 4. If ALL embedding options fail for the query, log explicit warning
-  console.warn(
-    "[RETRIEVAL WARNING] Query embedding failed after all retries — falling back to keyword-only matching, results may be degraded"
+  // 4. If ALL embedding options fail for the query, throw a typed error so the
+  //    route catch block can classify it correctly as EMBEDDING_FAILED.
+  throw new Error(
+    "EMBEDDING_FAILED: Query embedding failed after all providers (Gemini, Voyage, OpenAI) returned null."
   );
-  return null;
 }
 
 /**

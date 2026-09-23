@@ -11,6 +11,7 @@ import {
   Radio,
   ChevronDown,
   AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 import {
   getSupabaseClient,
@@ -45,6 +46,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Stores the last question so the "Try again" button can resubmit it
+  const lastFailedQueryRef = useRef<string>("");
 
   // Load chat messages from Supabase / local on mount
   useEffect(() => {
@@ -198,7 +201,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to retrieve grounded answer.");
+        // Throw an object so the catch block can read structured fields
+        const errObj = Object.assign(
+          new Error(data.message ?? data.error ?? "Failed to retrieve grounded answer."),
+          {
+            category: data.category ?? "UNKNOWN",
+            requestId: data.requestId ?? "",
+            message: data.message ?? data.error ?? "Failed to retrieve grounded answer.",
+          }
+        );
+        throw errObj;
       }
 
       const assistantId = `assistant-${Date.now()}`;
@@ -221,17 +233,25 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       // Save assistant message to Supabase
       saveChatMessageToSupabase(assistantMessage, documentId).catch(() => { });
     } catch (err) {
-      const rawMsg = (err as Error).message || "";
-      const errMsg = rawMsg.includes("AI service temporarily unavailable")
-        ? "AI service temporarily unavailable, please try again."
-        : rawMsg || "AI service temporarily unavailable, please try again.";
+      // Read the structured error payload if the server returned one
+      const anyErr = err as { category?: string; requestId?: string; message?: string };
+      const serverCategory = anyErr?.category ?? "UNKNOWN";
+      const serverRequestId = anyErr?.requestId ?? "";
+      const safeMsg =
+        anyErr?.message ??
+        "Something went wrong. Please try again.";
+
+      lastFailedQueryRef.current = textToSend;
 
       setMessages((prev) => [
         ...prev,
         {
           id: `err-${Date.now()}`,
           role: "assistant",
-          content: errMsg,
+          content: safeMsg,
+          isApiError: true,
+          errorCategory: serverCategory,
+          errorRequestId: serverRequestId,
           timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
@@ -306,67 +326,99 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
             >
               <div
-                className={`max-w-[88%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${isUser
+                className={`max-w-[88%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
+                  isUser
                     ? "bg-slate-900 text-white"
-                    : isError
-                      ? "bg-rose-50 text-rose-900 border border-rose-200"
+                    : msg.isApiError
+                      ? "bg-amber-50 text-amber-900 border border-amber-200"
                       : "bg-slate-100 text-slate-900 border border-slate-200/80"
-                  }`}
+                }`}
               >
-                {isError && (
-                  <div className="flex items-center gap-1.5 font-semibold text-rose-700 mb-1">
-                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                    <span>Service Notice</span>
-                  </div>
-                )}
-                <div className="whitespace-pre-line">{msg.content}</div>
-
-                {/* EXPANDABLE CITATIONS / RETRIEVED EXCERPTS SECTION */}
-                {hasCitations && msg.citations && (
-                  <div className="mt-3 pt-2.5 border-t border-slate-200/70">
+                {/* API Error Card */}
+                {msg.isApiError && (
+                  <>
+                    <div className="flex items-center gap-1.5 font-semibold text-amber-800 mb-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                      <span>Service Notice</span>
+                    </div>
+                    <div className="whitespace-pre-line mb-2">{msg.content}</div>
+                    {/* Try Again button */}
                     <button
                       type="button"
-                      onClick={() => toggleCitations(msg.id)}
-                      className="w-full flex items-center justify-between text-left text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900 transition py-0.5"
+                      onClick={() => {
+                        if (lastFailedQueryRef.current) {
+                          handleSend(lastFailedQueryRef.current);
+                        }
+                      }}
+                      disabled={isLoading}
+                      className="inline-flex items-center gap-1.5 rounded bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition disabled:opacity-50"
                     >
-                      <span className="flex items-center gap-1">
-                        <Sparkles className="h-3 w-3 text-amber-500 shrink-0" />
-                        <span>Retrieved Excerpts ({msg.citations.length})</span>
-                      </span>
-                      <ChevronDown
-                        className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${isExpanded ? "rotate-180 text-slate-700" : ""
-                          }`}
-                      />
+                      <RefreshCw className="h-3 w-3" />
+                      Try again
                     </button>
+                    {/* Reference ID for log correlation — safe to show, no internal details */}
+                    {msg.errorRequestId && (
+                      <p className="mt-2 text-[10px] text-amber-600/70 font-mono">
+                        Reference: {msg.errorRequestId}
+                      </p>
+                    )}
+                  </>
+                )}
 
-                    {/* EXPANDABLE BODY - EXPANDS WITHIN SCROLLABLE MESSAGE LIST */}
-                    {isExpanded && (
-                      <div className="mt-2 flex flex-col gap-1.5 pt-1">
-                        {msg.citations.map((cite, i) => (
-                          <div
-                            key={i}
-                            className="rounded bg-white border border-slate-200 p-2 text-[11px] shadow-2xs hover:border-slate-300 transition"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => onCitationClick && onCitationClick(cite.clauseId)}
-                              className="w-full flex items-center justify-between text-left group font-semibold text-slate-900"
-                            >
-                              <span className="group-hover:underline truncate mr-1">
-                                {cite.sectionNumber} — {cite.title}
-                              </span>
-                              <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-slate-700 shrink-0" />
-                            </button>
-                            {cite.snippet && (
-                              <p className="mt-1 text-[10.5px] text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100 line-clamp-3">
-                                &ldquo;{cite.snippet.trim()}&rdquo;
-                              </p>
-                            )}
+                {/* Normal assistant / user message */}
+                {!msg.isApiError && (
+                  <>
+                    <div className="whitespace-pre-line">{msg.content}</div>
+
+                    {/* EXPANDABLE CITATIONS / RETRIEVED EXCERPTS SECTION */}
+                    {hasCitations && msg.citations && (
+                      <div className="mt-3 pt-2.5 border-t border-slate-200/70">
+                        <button
+                          type="button"
+                          onClick={() => toggleCitations(msg.id)}
+                          className="w-full flex items-center justify-between text-left text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900 transition py-0.5"
+                        >
+                          <span className="flex items-center gap-1">
+                            <Sparkles className="h-3 w-3 text-amber-500 shrink-0" />
+                            <span>Retrieved Excerpts ({msg.citations.length})</span>
+                          </span>
+                          <ChevronDown
+                            className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${
+                              isExpanded ? "rotate-180 text-slate-700" : ""
+                            }`}
+                          />
+                        </button>
+
+                        {/* EXPANDABLE BODY */}
+                        {isExpanded && (
+                          <div className="mt-2 flex flex-col gap-1.5 pt-1">
+                            {msg.citations.map((cite, i) => (
+                              <div
+                                key={i}
+                                className="rounded bg-white border border-slate-200 p-2 text-[11px] shadow-2xs hover:border-slate-300 transition"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => onCitationClick && onCitationClick(cite.clauseId)}
+                                  className="w-full flex items-center justify-between text-left group font-semibold text-slate-900"
+                                >
+                                  <span className="group-hover:underline truncate mr-1">
+                                    {cite.sectionNumber} — {cite.title}
+                                  </span>
+                                  <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-slate-700 shrink-0" />
+                                </button>
+                                {cite.snippet && (
+                                  <p className="mt-1 text-[10.5px] text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100 line-clamp-3">
+                                    &ldquo;{cite.snippet.trim()}&rdquo;
+                                  </p>
+                                )}
+                              </div>
+                            ))}
                           </div>
-                        ))}
+                        )}
                       </div>
                     )}
-                  </div>
+                  </>
                 )}
               </div>
               <span className="text-[10px] text-slate-400 mt-1 px-1">

@@ -3,8 +3,16 @@ import { getDocument } from "@/lib/docstore";
 import { cosineSimilarity, getEmbedding } from "@/lib/embeddings";
 import { applyGuardrailSafetyFilter } from "@/lib/claude";
 import { ClauseComparisonItem, ComparisonReport } from "@/lib/types";
+import {
+  classifyError,
+  logServerError,
+  buildErrorPayload,
+  generateRequestId,
+  CATEGORY_HTTP_STATUS,
+} from "@/lib/errors";
 
 export async function POST(request: NextRequest) {
+  const requestId = generateRequestId();
   try {
     const { docAId, docBId } = await request.json();
 
@@ -26,27 +34,36 @@ export async function POST(request: NextRequest) {
     }
 
     // Embed all clauses from both documents for semantic matching (reuse cached chunk embeddings)
-    const pairsA = await Promise.all(
-      docA.chunks.map(async (chunk) => ({
-        chunk,
-        analysis: docA.analyses[chunk.id],
-        embedding:
-          chunk.embedding && chunk.embedding.length > 0
-            ? chunk.embedding
-            : await getEmbedding(`${chunk.title} ${chunk.text}`),
-      }))
-    );
+    let pairsA: { chunk: (typeof docA.chunks)[0]; analysis: (typeof docA.analyses)[string]; embedding: number[] }[];
+    let pairsB: { chunk: (typeof docB.chunks)[0]; analysis: (typeof docB.analyses)[string]; embedding: number[] }[];
+    try {
+      pairsA = await Promise.all(
+        docA.chunks.map(async (chunk) => ({
+          chunk,
+          analysis: docA.analyses[chunk.id],
+          embedding:
+            chunk.embedding && chunk.embedding.length > 0
+              ? chunk.embedding
+              : await getEmbedding(`${chunk.title} ${chunk.text}`),
+        }))
+      );
 
-    const pairsB = await Promise.all(
-      docB.chunks.map(async (chunk) => ({
-        chunk,
-        analysis: docB.analyses[chunk.id],
-        embedding:
-          chunk.embedding && chunk.embedding.length > 0
-            ? chunk.embedding
-            : await getEmbedding(`${chunk.title} ${chunk.text}`),
-      }))
-    );
+      pairsB = await Promise.all(
+        docB.chunks.map(async (chunk) => ({
+          chunk,
+          analysis: docB.analyses[chunk.id],
+          embedding:
+            chunk.embedding && chunk.embedding.length > 0
+              ? chunk.embedding
+              : await getEmbedding(`${chunk.title} ${chunk.text}`),
+        }))
+      );
+    } catch (embErr) {
+      const category = classifyError(embErr);
+      logServerError(category, requestId, "Compare/Embedding", embErr);
+      const payload = buildErrorPayload(category, requestId);
+      return NextResponse.json(payload, { status: CATEGORY_HTTP_STATUS[category] });
+    }
 
     const matchedBIndices = new Set<number>();
     const comparisonItems: ClauseComparisonItem[] = [];
@@ -147,11 +164,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ report });
   } catch (error) {
-    console.error("Comparison route error:", error);
-    return NextResponse.json(
-      { error: (error as Error).message || "Failed to compare documents." },
-      { status: 500 }
-    );
+    const category = classifyError(error);
+    logServerError(category, requestId, "Compare/LLM", error);
+    const payload = buildErrorPayload(category, requestId);
+    return NextResponse.json(payload, { status: CATEGORY_HTTP_STATUS[category] });
   }
 }
 

@@ -1,8 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeClauseWithClaude } from "@/lib/claude";
 import { getDocument, saveDocument } from "@/lib/docstore";
+import {
+  classifyError,
+  logServerError,
+  buildErrorPayload,
+  generateRequestId,
+  CATEGORY_HTTP_STATUS,
+} from "@/lib/errors";
 
 export async function POST(request: NextRequest) {
+  const requestId = generateRequestId();
+
   try {
     const { documentId, clauseId, sectionNumber, title, text } = await request.json();
 
@@ -31,11 +40,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ analysis });
   } catch (error) {
-    console.error("Analyze clause route error:", error);
-    const errMsg = (error as Error).message || "AI service temporarily unavailable, please try again.";
-    return NextResponse.json(
-      { error: errMsg },
-      { status: 503 }
-    );
+    const category = classifyError(error);
+    logServerError(category, requestId, "AnalyzeClause/LLM", error);
+    const payload = buildErrorPayload(category, requestId);
+    return NextResponse.json(payload, { status: CATEGORY_HTTP_STATUS[category] });
   }
 }

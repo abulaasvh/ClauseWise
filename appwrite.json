@@ -12,7 +12,8 @@
           "buildCommand": "npm run build",
           "buildOutputDirectory": ".next",
           "installCommand": "npm install",
-          "adapter": "ssr"
+          "adapter": "ssr",
+          "fallbackFile": ""
         }
       ]
     }
