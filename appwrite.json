@@ -1,0 +1,20 @@
+{
+  "projects": [
+    {
+      "projectId": "YOUR_APPWRITE_PROJECT_ID",
+      "projectName": "ClauseWise",
+      "sites": [
+        {
+          "siteId": "YOUR_APPWRITE_SITE_ID",
+          "name": "ClauseWise",
+          "framework": "nextjs",
+          "buildRuntime": "node-22",
+          "buildCommand": "npm run build",
+          "buildOutputDirectory": ".next",
+          "installCommand": "npm install",
+          "adapter": "ssr"
+        }
+      ]
+    }
+  ]
+}
