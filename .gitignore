@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────
+# ClauseWise — .gitignore
+# ─────────────────────────────────────────────────
+
+# ── Secrets & Environment Variables ──────────────
+# NEVER commit real secrets. .env.example is safe to commit.
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# ── Next.js Build Output ─────────────────────────
+.next/
+out/
+
+# ── Local Storage / App Data ─────────────────────
+.storage/
+
+# ── Node Modules ─────────────────────────────────
+node_modules/
+
+# ── TypeScript Build Info ─────────────────────────
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# ── OS / Editor ───────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ── Logs ─────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── Misc ─────────────────────────────────────────
+.vercel
+.cache/
