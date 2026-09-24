@@ -144,7 +144,8 @@ export default function DocumentsPage() {
 
       {/* UPLOAD WORKSPACE */}
       <section className="max-w-4xl mx-auto">
-        <div
+        <label
+          htmlFor={isUploading ? undefined : "file-upload-documents"}
           onDragEnter={(e) => {
             e.preventDefault();
             setDragActive(true);
@@ -155,10 +156,10 @@ export default function DocumentsPage() {
           }}
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
-          className={`relative rounded-xl border-2 border-dashed p-8 sm:p-10 text-center transition bg-white shadow-2xs ${
+          className={`relative block rounded-xl border-2 border-dashed p-8 sm:p-10 text-center transition cursor-pointer select-none group bg-white shadow-2xs ${
             dragActive
               ? "border-jade bg-jade-50/50"
-              : "border-slate-300 hover:border-slate-400"
+              : "border-slate-300 hover:border-jade-500 hover:bg-jade-50/30"
           }`}
         >
           <input
@@ -173,29 +174,26 @@ export default function DocumentsPage() {
           />
 
           <div className="flex flex-col items-center justify-center space-y-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-inner">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-700 shadow-inner group-hover:bg-jade-50 group-hover:text-jade transition">
               {isUploading ? (
                 <Loader2 className="h-6 w-6 animate-spin text-jade" />
               ) : (
-                <UploadCloud className="h-6 w-6 text-slate-600" />
+                <UploadCloud className="h-6 w-6 text-slate-600 group-hover:text-jade transition" />
               )}
             </div>
 
             <div>
-              <label
-                htmlFor="file-upload-documents"
-                className="cursor-pointer text-sm font-semibold text-ink-navy hover:text-jade underline underline-offset-2"
-              >
+              <span className="text-sm font-semibold text-ink-navy group-hover:text-jade underline underline-offset-2 transition">
                 {isUploading ? "Extracting & Chunking Document..." : "Choose a PDF or DOCX file"}
-              </label>
+              </span>
               <span className="text-sm text-slate-500"> or drag and drop here</span>
             </div>
 
             <p className="text-xs text-slate-400">
-              Preserves legal numbering, section headings, and structured provisions
+              Click anywhere in this box or drop file · Preserves legal numbering and structured provisions
             </p>
           </div>
-        </div>
+        </label>
 
         {errorMessage && (
           <div className="mt-3 rounded-md bg-rose-50 p-3 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
