@@ -234,7 +234,8 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={() => setShowPasteModal(true)}
-                  className="text-jade font-semibold hover:underline"
+                  aria-label="Open paste raw contract text dialog"
+                  className="text-jade font-semibold hover:underline focus-visible:outline-2 focus-visible:outline-teal-600 rounded"
                 >
                   paste raw text
                 </button>
@@ -261,6 +262,8 @@ export default function HomePage() {
                 className="relative w-full h-auto drop-shadow-sm"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+                focusable="false"
               >
                 {/* DOCUMENT SHEET */}
                 <rect
@@ -566,22 +569,32 @@ export default function HomePage() {
 
       {/* MODAL FOR RAW CONTRACT TEXT PASTE */}
       {showPasteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="paste-modal-title"
+        >
           <div className="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-ink-navy font-headline">Paste Raw Contract Text</h3>
+              <h3 id="paste-modal-title" className="text-base font-bold text-ink-navy font-headline">Paste Raw Contract Text</h3>
               <button
                 type="button"
                 onClick={() => setShowPasteModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                aria-label="Close paste contract text dialog"
+                className="text-slate-400 hover:text-slate-600 rounded p-1 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
               >
-                ✕
+                <span aria-hidden="true">✕</span>
               </button>
             </div>
             <p className="text-xs text-slate-500">
               Paste contract clauses, an agreement draft, or lease agreement. ClauseWise will detect numbering and headings automatically.
             </p>
+            <label htmlFor="home-paste-textarea" className="sr-only">
+              Paste raw contract text
+            </label>
             <textarea
+              id="home-paste-textarea"
               rows={10}
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
@@ -592,7 +605,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setShowPasteModal(false)}
-                className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
               >
                 Cancel
               </button>
@@ -600,9 +613,10 @@ export default function HomePage() {
                 type="button"
                 onClick={handleTextSubmit}
                 disabled={isUploading || !pastedText.trim()}
-                className="rounded-lg bg-ink-navy px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition disabled:opacity-50 flex items-center gap-1.5"
+                aria-label="Process and analyze pasted contract text"
+                className="rounded-lg bg-ink-navy px-4 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition disabled:opacity-50 flex items-center gap-1.5 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
               >
-                {isUploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {isUploading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
                 <span>Process Text</span>
               </button>
             </div>

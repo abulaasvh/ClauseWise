@@ -1,3 +1,5 @@
+import { NextResponse } from "next/server";
+
 /**
  * lib/errors.ts
  * Shared error classifier, sanitizer, server-side logger, and response builder
@@ -73,15 +75,18 @@ export function generateRequestId(): string {
  * secret or sensitive internal detail has leaked through an unclassified path.
  */
 const LEAK_PATTERNS = [
-  /sk-[A-Za-z0-9_-]{10,}/,           // OpenAI / Anthropic secret keys
-  /AIza[A-Za-z0-9_-]{10,}/,          // Google API keys
-  /gsk_[A-Za-z0-9_-]{10,}/,          // Groq secret keys
-  /api[_-]?key\s*[:=]/i,             // Generic "api_key =" or "api-key:" patterns
-  /Bearer\s+[A-Za-z0-9._-]{10,}/i,   // Raw Bearer tokens
-  /\bpa-[A-Za-z0-9_-]{20,}/,         // Voyage AI keys
-  /"error"\s*:\s*\{/,                // Raw JSON error blobs
-  /at\s+[A-Za-z_$][A-Za-z0-9_$]*\s*\(/,  // Stack trace frames: "at functionName ("
-  /\/[a-z]+\/[a-z]+\/[a-z]+\//,     // Internal file paths like /app/api/chat/
+  /sk-[A-Za-z0-9_-]{10,}/,                  // OpenAI / Anthropic secret keys
+  /AIza[A-Za-z0-9_-]{10,}/,                 // Google API keys
+  /gsk_[A-Za-z0-9_-]{10,}/,                 // Groq secret keys
+  /api[_-]?key\s*[:=]/i,                    // Generic "api_key =" or "api-key:" patterns
+  /Bearer\s+[A-Za-z0-9._-]{10,}/i,          // Raw Bearer tokens
+  /\bpa-[A-Za-z0-9_-]{20,}/,                // Voyage AI keys
+  /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/, // JWT tokens / Supabase keys
+  /"error"\s*:\s*\{/,                       // Raw JSON error blobs
+  /at\s+(?:async\s+)?[A-Za-z_$][A-Za-z0-9_$]*\s*\(/, // Stack trace frames: "at functionName ("
+  /[A-Za-z]:\\[A-Za-z0-9_.-]+/,            // Windows file paths
+  /\/(?:app|Users|home|root|var|etc|usr|tmp|node_modules)\/[A-Za-z0-9_.-]+/, // Unix file paths
+  /(?:postgres|postgresql|mongodb|mysql|redis):\/\/[^\s]+/i, // Database URIs
 ];
 
 /**
@@ -206,7 +211,7 @@ export function logServerError(
 // ─── Client Response Builder ─────────────────────────────────────────────────
 
 export interface ApiErrorPayload {
-  error: true;
+  error: string;
   category: ErrorCategory;
   message: string;
   requestId: string;
@@ -219,14 +224,32 @@ export interface ApiErrorPayload {
  */
 export function buildErrorPayload(
   category: ErrorCategory,
-  requestId: string
+  requestId: string,
+  customMessage?: string
 ): ApiErrorPayload {
-  const rawMessage = USER_MESSAGES[category] ?? USER_MESSAGES.UNKNOWN;
+  const rawMessage = customMessage || USER_MESSAGES[category] || USER_MESSAGES.UNKNOWN;
+  const sanitized = sanitizeForClient(rawMessage);
   return {
-    error: true,
+    error: sanitized,
     category,
-    message: sanitizeForClient(rawMessage),
+    message: sanitized,
     requestId,
     timestamp: new Date().toISOString(),
   };
+}
+
+/**
+ * Convenience helper to log the error server-side and return a sanitized NextResponse.
+ */
+export function buildErrorResponse(
+  err: unknown,
+  requestId: string,
+  provider: string,
+  fallbackCategory: ErrorCategory = "UNKNOWN"
+): NextResponse {
+  const category = classifyError(err);
+  const finalCat = category === "UNKNOWN" ? fallbackCategory : category;
+  logServerError(finalCat, requestId, provider, err);
+  const payload = buildErrorPayload(finalCat, requestId);
+  return NextResponse.json(payload, { status: CATEGORY_HTTP_STATUS[finalCat] });
 }

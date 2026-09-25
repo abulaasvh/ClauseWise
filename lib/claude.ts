@@ -147,6 +147,39 @@ function getAnthropicClient(): Anthropic | null {
 }
 
 /**
+ * Parses raw LLM response text into a structured ClauseAnalysis object
+ * with { category, plain_summary, risk_level, risk_reason, key_terms }.
+ */
+export function parseRiskCategorizationJson(
+  rawText: string,
+  clauseId: string = "clause-temp"
+): ClauseAnalysis | null {
+  if (!rawText) return null;
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    const validRiskLevels = new Set(["LOW", "MEDIUM", "HIGH"]);
+    const rawRisk = typeof parsed.risk_level === "string" ? parsed.risk_level.toUpperCase() : "LOW";
+    const riskLevel: RiskLevel = validRiskLevels.has(rawRisk)
+      ? (rawRisk as RiskLevel)
+      : "LOW";
+
+    return {
+      clauseId,
+      category: parsed.category || "General",
+      plain_summary: applyGuardrailSafetyFilter(parsed.plain_summary || ""),
+      risk_level: riskLevel,
+      risk_reason: applyGuardrailSafetyFilter(parsed.risk_reason || "Standard contract provision."),
+      key_terms: Array.isArray(parsed.key_terms) ? parsed.key_terms : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Calls Claude to analyze and simplify a specific clause
  */
 export async function analyzeClauseWithClaude(
@@ -173,18 +206,8 @@ export async function analyzeClauseWithClaude(
       });
 
       const responseText = response.content[0]?.type === "text" ? response.content[0].text : "";
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          clauseId,
-          category: parsed.category || "General",
-          plain_summary: applyGuardrailSafetyFilter(parsed.plain_summary || ""),
-          risk_level: (["LOW", "MEDIUM", "HIGH"].includes(parsed.risk_level) ? parsed.risk_level : "LOW") as RiskLevel,
-          risk_reason: applyGuardrailSafetyFilter(parsed.risk_reason || "Standard standard contract provision."),
-          key_terms: Array.isArray(parsed.key_terms) ? parsed.key_terms : [],
-        };
-      }
+      const analysis = parseRiskCategorizationJson(responseText, clauseId);
+      if (analysis) return analysis;
     } catch (error) {
       console.warn("Claude API call failed or timed out, falling back:", error);
     }
@@ -197,18 +220,8 @@ export async function analyzeClauseWithClaude(
       `Analyze this clause:\n\nSection/Number: ${sectionNumber}\nTitle: ${title}\nText:\n${text}`
     );
     if (result && result.text) {
-      const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return {
-          clauseId,
-          category: parsed.category || "General",
-          plain_summary: applyGuardrailSafetyFilter(parsed.plain_summary || ""),
-          risk_level: (["LOW", "MEDIUM", "HIGH"].includes(parsed.risk_level) ? parsed.risk_level : "LOW") as RiskLevel,
-          risk_reason: applyGuardrailSafetyFilter(parsed.risk_reason || "Standard contract provision."),
-          key_terms: Array.isArray(parsed.key_terms) ? parsed.key_terms : [],
-        };
-      }
+      const analysis = parseRiskCategorizationJson(result.text, clauseId);
+      if (analysis) return analysis;
     }
   } catch (err) {
     console.warn("Resilient LLM clause analysis failed:", err);

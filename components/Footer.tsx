@@ -12,14 +12,14 @@ export const Footer: React.FC = () => {
   }
 
   return (
-    <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-500 flex-shrink-0">
+    <footer className="border-t border-slate-200 bg-white py-4 text-center text-xs text-slate-600 flex-shrink-0">
       <div className="mx-auto max-w-7xl px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
         <div>ClauseWise Document Assistant &copy; 2026. Non-attorney informational system.</div>
-        <div className="flex items-center gap-4 text-[11px] text-slate-400">
+        <div className="flex items-center gap-4 text-[11px] text-slate-500 font-medium">
           <span>RAG Chunking</span>
-          <span>•</span>
+          <span aria-hidden="true">•</span>
           <span>Semantic Alignment</span>
-          <span>•</span>
+          <span aria-hidden="true">•</span>
           <span>Guardrailed Inference</span>
         </div>
       </div>

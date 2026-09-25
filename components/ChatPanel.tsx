@@ -17,7 +17,6 @@ import {
   getSupabaseClient,
   saveChatMessageToSupabase,
   fetchChatMessagesFromSupabase,
-  isSupabaseConfigured,
 } from "@/lib/supabase";
 
 interface ChatPanelProps {
@@ -46,7 +45,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   const messageListRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Stores the last question so the "Try again" button can resubmit it
   const lastFailedQueryRef = useRef<string>("");
 
   // Load chat messages from Supabase / local on mount
@@ -72,7 +70,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
     loadHistory();
 
-    // Supabase Realtime Subscription
     const client = getSupabaseClient();
     if (client) {
       setIsRealtimeActive(true);
@@ -127,66 +124,40 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     };
   }, [documentId]);
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior, block: "end" });
-    }
-    if (messageListRef.current) {
-      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
-    }
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  const toggleCitation = (msgId: string) => {
+    setExpandedCitations((prev) => ({
+      ...prev,
+      [msgId]: !prev[msgId],
+    }));
   };
 
-  // Auto-scroll to bottom whenever messages change or loading indicator updates
-  useEffect(() => {
-    scrollToBottom("smooth");
-  }, [messages, isLoading, isLongWait]);
+  const handleSend = async (textToSend?: string) => {
+    const q = (textToSend || input).trim();
+    if (!q || isLoading) return;
 
-  // Track long requests (>15 seconds) to update loading status message
-  useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
-    if (isLoading) {
-      setIsLongWait(false);
-      timer = setTimeout(() => {
-        setIsLongWait(true);
-      }, 15000);
-    } else {
-      setIsLongWait(false);
-    }
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
-  }, [isLoading]);
-
-  const toggleCitations = (msgId: string) => {
-    setExpandedCitations((prev) => {
-      const nextState = !prev[msgId];
-      // Small timeout to scroll into view if expanding
-      if (nextState) {
-        setTimeout(() => scrollToBottom("smooth"), 50);
-      }
-      return { ...prev, [msgId]: nextState };
-    });
-  };
-
-  const handleSend = async (queryText?: string) => {
-    const textToSend = (queryText || input).trim();
-    if (!textToSend || isLoading) return;
+    lastFailedQueryRef.current = q;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      content: textToSend,
+      content: q,
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
     setMessages((prev) => [...prev, userMessage]);
-    setInput("");
+    if (!textToSend) setInput("");
     setIsLoading(true);
     setIsLongWait(false);
-    setIsSuggestedOpen(false);
 
-    // Save user message to Supabase
-    saveChatMessageToSupabase(userMessage, documentId).catch(() => { });
+    saveChatMessageToSupabase(userMessage, documentId).catch(() => {});
+
+    const longWaitTimer = setTimeout(() => {
+      setIsLongWait(true);
+    }, 6000);
 
     try {
       const response = await fetch("/api/chat", {
@@ -194,14 +165,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           documentId,
-          question: textToSend,
+          question: q,
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        // Throw an object so the catch block can read structured fields
         const errObj = Object.assign(
           new Error(data.message ?? data.error ?? "Failed to retrieve grounded answer."),
           {
@@ -223,40 +193,41 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
-      // Automatically expand citations for the fresh response if available
       if (data.citations && data.citations.length > 0) {
         setExpandedCitations((prev) => ({ ...prev, [assistantId]: true }));
       }
 
       setMessages((prev) => [...prev, assistantMessage]);
-
-      // Save assistant message to Supabase
-      saveChatMessageToSupabase(assistantMessage, documentId).catch(() => { });
+      saveChatMessageToSupabase(assistantMessage, documentId).catch(() => {});
     } catch (err) {
-      // Read the structured error payload if the server returned one
-      const anyErr = err as { category?: string; requestId?: string; message?: string };
-      const serverCategory = anyErr?.category ?? "UNKNOWN";
-      const serverRequestId = anyErr?.requestId ?? "";
-      const safeMsg =
-        anyErr?.message ??
-        "Something went wrong. Please try again.";
+      const typedErr = err as { category?: string; requestId?: string; message?: string };
+      const category = typedErr.category ?? "UNKNOWN";
+      const requestId = typedErr.requestId ?? "";
+      const userMessageText =
+        typedErr.message ?? "Something went wrong while retrieving the answer. Please try again.";
 
-      lastFailedQueryRef.current = textToSend;
+      const errorMessage: ChatMessage = {
+        id: `err-${Date.now()}`,
+        role: "assistant",
+        content: userMessageText,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        isError: true,
+        errorCategory: category,
+        requestId,
+      };
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `err-${Date.now()}`,
-          role: "assistant",
-          content: safeMsg,
-          isApiError: true,
-          errorCategory: serverCategory,
-          errorRequestId: serverRequestId,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
+      clearTimeout(longWaitTimer);
       setIsLoading(false);
+      setIsLongWait(false);
+    }
+  };
+
+  const handleRetry = (queryToRetry?: string) => {
+    const q = queryToRetry || lastFailedQueryRef.current;
+    if (q) {
+      handleSend(q);
     }
   };
 
@@ -278,8 +249,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       {/* 1. HEADER (FIXED TOP) */}
       <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-200 bg-slate-50/50">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-slate-900 text-white">
-            <MessageSquare className="h-4 w-4" />
+          <div className="flex h-7 w-7 items-center justify-center rounded bg-slate-900 text-white shadow-2xs">
+            <MessageSquare className="h-4 w-4" aria-hidden="true" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
@@ -287,13 +258,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 Grounded Q&A
               </h2>
               {isRealtimeActive && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 font-medium bg-emerald-50 px-1.5 py-0.2 rounded-full border border-emerald-200">
-                  <Radio className="h-2.5 w-2.5 animate-pulse text-emerald-600" />
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-950 font-medium bg-emerald-50 px-1.5 py-0.2 rounded-full border border-emerald-300">
+                  <Radio className="h-2.5 w-2.5 animate-pulse text-emerald-700" aria-hidden="true" />
                   Realtime
                 </span>
               )}
             </div>
-            <p className="text-[11px] text-slate-500">
+            <p className="text-[11px] text-slate-600">
               Strictly cited from document text
             </p>
           </div>
@@ -302,23 +273,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         <button
           onClick={handleClearHistory}
           type="button"
-          className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+          aria-label="Clear chat history"
+          className="rounded p-1.5 text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
           title="Clear Chat History"
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
       </div>
 
-      {/* 2. MESSAGES LIST (THE ONLY SCROLLABLE AREA) */}
+      {/* 2. CHAT SCROLLABLE BODY */}
       <div
         ref={messageListRef}
-        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4"
+        tabIndex={0}
+        aria-label="Chat conversation history"
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3.5 focus-visible:ring-1 focus-visible:ring-teal-600 focus-visible:outline-none"
       >
         {messages.map((msg) => {
           const isUser = msg.role === "user";
-          const isError = msg.id.startsWith("err-");
-          const hasCitations = Boolean(msg.citations && msg.citations.length > 0);
-          const isExpanded = expandedCitations[msg.id] ?? false;
+          const isExpanded = !!expandedCitations[msg.id];
 
           return (
             <div
@@ -329,67 +301,62 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 className={`max-w-[88%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
                   isUser
                     ? "bg-slate-900 text-white"
-                    : msg.isApiError
-                      ? "bg-amber-50 text-amber-900 border border-amber-200"
-                      : "bg-slate-100 text-slate-900 border border-slate-200/80"
+                    : msg.isError
+                    ? "bg-amber-50 text-amber-950 border border-amber-300"
+                    : "bg-slate-100 text-slate-900 border border-slate-200"
                 }`}
               >
-                {/* API Error Card */}
-                {msg.isApiError && (
-                  <>
-                    <div className="flex items-center gap-1.5 font-semibold text-amber-800 mb-1.5">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                      <span>Service Notice</span>
+                {msg.isError ? (
+                  <div className="space-y-2">
+                    <div className="flex items-start gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
+                      <p>{msg.content}</p>
                     </div>
-                    <div className="whitespace-pre-line mb-2">{msg.content}</div>
-                    {/* Try Again button */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (lastFailedQueryRef.current) {
-                          handleSend(lastFailedQueryRef.current);
-                        }
-                      }}
-                      disabled={isLoading}
-                      className="inline-flex items-center gap-1.5 rounded bg-amber-100 hover:bg-amber-200 border border-amber-300 px-2.5 py-1 text-[11px] font-semibold text-amber-800 transition disabled:opacity-50"
-                    >
-                      <RefreshCw className="h-3 w-3" />
-                      Try again
-                    </button>
-                    {/* Reference ID for log correlation — safe to show, no internal details */}
-                    {msg.errorRequestId && (
-                      <p className="mt-2 text-[10px] text-amber-600/70 font-mono">
-                        Reference: {msg.errorRequestId}
-                      </p>
-                    )}
-                  </>
-                )}
 
-                {/* Normal assistant / user message */}
-                {!msg.isApiError && (
+                    <div className="flex items-center justify-between pt-1 border-t border-amber-200 text-[10px]">
+                      {msg.requestId && (
+                        <span className="font-mono text-amber-900">
+                          Ref: {msg.requestId}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRetry()}
+                        disabled={isLoading}
+                        aria-label="Retry failed query"
+                        className="inline-flex items-center gap-1 font-semibold text-amber-950 hover:underline disabled:opacity-50 ml-auto focus-visible:ring-2 focus-visible:ring-teal-600"
+                      >
+                        <RefreshCw className="h-2.5 w-2.5" aria-hidden="true" />
+                        <span>Try again</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
                   <>
-                    <div className="whitespace-pre-line">{msg.content}</div>
+                    <p className="whitespace-pre-line">{msg.content}</p>
 
-                    {/* EXPANDABLE CITATIONS / RETRIEVED EXCERPTS SECTION */}
-                    {hasCitations && msg.citations && (
-                      <div className="mt-3 pt-2.5 border-t border-slate-200/70">
+                    {/* CITATION EXPANDER */}
+                    {msg.citations && msg.citations.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-slate-200">
                         <button
                           type="button"
-                          onClick={() => toggleCitations(msg.id)}
-                          className="w-full flex items-center justify-between text-left text-[10px] font-semibold uppercase tracking-wider text-slate-600 hover:text-slate-900 transition py-0.5"
+                          onClick={() => toggleCitation(msg.id)}
+                          aria-expanded={isExpanded}
+                          aria-label={`Toggle citations (${msg.citations.length} excerpts)`}
+                          className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-700 hover:text-slate-950 py-0.5 rounded focus-visible:ring-2 focus-visible:ring-teal-600"
                         >
                           <span className="flex items-center gap-1">
-                            <Sparkles className="h-3 w-3 text-amber-500 shrink-0" />
+                            <Sparkles className="h-3 w-3 text-amber-600 shrink-0" aria-hidden="true" />
                             <span>Retrieved Excerpts ({msg.citations.length})</span>
                           </span>
                           <ChevronDown
-                            className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${
-                              isExpanded ? "rotate-180 text-slate-700" : ""
+                            aria-hidden="true"
+                            className={`h-3.5 w-3.5 text-slate-600 transition-transform duration-200 ${
+                              isExpanded ? "rotate-180 text-slate-900" : ""
                             }`}
                           />
                         </button>
 
-                        {/* EXPANDABLE BODY */}
                         {isExpanded && (
                           <div className="mt-2 flex flex-col gap-1.5 pt-1">
                             {msg.citations.map((cite, i) => (
@@ -400,15 +367,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => onCitationClick && onCitationClick(cite.clauseId)}
-                                  className="w-full flex items-center justify-between text-left group font-semibold text-slate-900"
+                                  aria-label={`Navigate to cited section: ${cite.sectionNumber} ${cite.title}`}
+                                  className="w-full flex items-center justify-between text-left group font-semibold text-slate-900 rounded focus-visible:ring-2 focus-visible:ring-teal-600"
                                 >
                                   <span className="group-hover:underline truncate mr-1">
                                     {cite.sectionNumber} — {cite.title}
                                   </span>
-                                  <ExternalLink className="h-3 w-3 text-slate-400 group-hover:text-slate-700 shrink-0" />
+                                  <ExternalLink className="h-3 w-3 text-slate-600 group-hover:text-slate-900 shrink-0" aria-hidden="true" />
                                 </button>
                                 {cite.snippet && (
-                                  <p className="mt-1 text-[10.5px] text-slate-500 italic bg-slate-50 p-1.5 rounded border border-slate-100 line-clamp-3">
+                                  <p className="mt-1 text-[10.5px] text-slate-600 italic bg-slate-50 p-1.5 rounded border border-slate-100 line-clamp-3">
                                     &ldquo;{cite.snippet.trim()}&rdquo;
                                   </p>
                                 )}
@@ -421,7 +389,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                   </>
                 )}
               </div>
-              <span className="text-[10px] text-slate-400 mt-1 px-1">
+              <span className="text-[10px] text-slate-500 mt-1 px-1 font-medium">
                 {msg.timestamp}
               </span>
             </div>
@@ -429,15 +397,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         })}
 
         {isLoading && (
-          <div className="flex flex-col items-start transition-opacity duration-200">
+          <div className="flex flex-col items-start transition-opacity duration-200" role="status" aria-live="polite">
             <div className="max-w-[88%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed bg-slate-100 text-slate-900 border border-slate-200/80 shadow-2xs">
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 py-0.5 px-0.5" aria-hidden="true">
-                  <span className="typing-dot typing-dot-1 h-1.5 w-1.5 rounded-full bg-slate-600" />
-                  <span className="typing-dot typing-dot-2 h-1.5 w-1.5 rounded-full bg-slate-600" />
-                  <span className="typing-dot typing-dot-3 h-1.5 w-1.5 rounded-full bg-slate-600" />
+                  <span className="typing-dot typing-dot-1 h-1.5 w-1.5 rounded-full bg-slate-700" />
+                  <span className="typing-dot typing-dot-2 h-1.5 w-1.5 rounded-full bg-slate-700" />
+                  <span className="typing-dot typing-dot-3 h-1.5 w-1.5 rounded-full bg-slate-700" />
                 </div>
-                <span className="text-xs text-slate-600 font-medium">
+                <span className="text-xs text-slate-700 font-medium">
                   {isLongWait
                     ? "Still checking — this can take a moment"
                     : "Reading the document..."}
@@ -450,27 +418,31 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         <div ref={messagesEndRef} className="h-1" />
       </div>
 
-      {/* 3. FIXED BOTTOM CONTAINER (NEVER SCROLLS, NEVER PUSHED OUT OF VIEW) */}
+      {/* 3. FIXED BOTTOM CONTAINER */}
       <div className="flex-shrink-0 border-t border-slate-200 bg-white shadow-xs">
-        {/* COLLAPSIBLE SUGGESTED QUESTIONS DROPDOWN (DEFAULT COLLAPSED) */}
+        {/* COLLAPSIBLE SUGGESTED QUESTIONS */}
         <div className="border-b border-slate-100 bg-slate-50/80">
           <button
             type="button"
             onClick={() => setIsSuggestedOpen((prev) => !prev)}
-            className="w-full flex items-center justify-between px-3.5 py-2 text-[11px] font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 transition"
+            aria-expanded={isSuggestedOpen}
+            aria-label="Toggle suggested questions list"
+            className="w-full flex items-center justify-between px-3.5 py-2 text-[11px] font-semibold text-slate-700 hover:text-slate-900 hover:bg-slate-100 transition focus-visible:ring-2 focus-visible:ring-teal-600"
           >
             <span className="flex items-center gap-1.5">
-              <Sparkles className="h-3.5 w-3.5 text-amber-500" />
+              <Sparkles className="h-3.5 w-3.5 text-amber-600" aria-hidden="true" />
               <span>Suggested questions</span>
             </span>
             <ChevronDown
-              className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${isSuggestedOpen ? "rotate-180 text-slate-700" : ""
-                }`}
+              aria-hidden="true"
+              className={`h-3.5 w-3.5 text-slate-600 transition-transform duration-200 ${
+                isSuggestedOpen ? "rotate-180 text-slate-900" : ""
+              }`}
             />
           </button>
 
           {isSuggestedOpen && (
-            <div className="px-3.5 pb-2.5 pt-1 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+            <div className="px-3.5 pb-2.5 pt-1 flex flex-wrap gap-1.5 max-h-40 overflow-y-auto" role="group" aria-label="Suggested Questions">
               {SUGGESTED_QUESTIONS.map((q, idx) => (
                 <button
                   key={idx}
@@ -480,7 +452,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     setIsSuggestedOpen(false);
                   }}
                   disabled={isLoading}
-                  className="rounded-full bg-white hover:bg-slate-100 border border-slate-200 px-2.5 py-1 text-[11px] text-slate-700 transition disabled:opacity-50 text-left shadow-2xs hover:border-slate-300"
+                  className="rounded-full bg-white hover:bg-slate-100 border border-slate-300 px-2.5 py-1 text-[11px] font-medium text-slate-800 transition disabled:opacity-50 text-left shadow-2xs hover:border-slate-400 focus-visible:ring-2 focus-visible:ring-teal-600"
                 >
                   {q}
                 </button>
@@ -498,20 +470,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             }}
             className="flex items-center gap-2"
           >
+            <label htmlFor="chat-user-input" className="sr-only">
+              Ask a question about this contract
+            </label>
             <input
+              id="chat-user-input"
               type="text"
               placeholder="Ask a question about this contract..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               disabled={isLoading}
-              className="flex-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 focus:bg-white focus:border-slate-400 focus:outline-none focus:ring-1 focus:ring-slate-400 transition"
+              aria-label="Ask a question about this contract"
+              className="flex-1 rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-900 focus:bg-white focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-teal-600 transition"
             />
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
-              className="inline-flex items-center justify-center rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow hover:bg-slate-800 transition disabled:opacity-50"
+              aria-label="Send question"
+              className="inline-flex items-center justify-center rounded-md bg-slate-900 px-3 py-2 text-xs font-semibold text-white shadow-xs hover:bg-slate-800 transition disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
             >
-              <Send className="h-3.5 w-3.5" />
+              <Send className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
           </form>
         </div>

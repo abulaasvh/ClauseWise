@@ -63,13 +63,24 @@ CREATE INDEX IF NOT EXISTS idx_clauses_document_id ON public.clauses(document_id
 CREATE INDEX IF NOT EXISTS idx_chat_document_id ON public.chat_messages(document_id);
 CREATE INDEX IF NOT EXISTS idx_notes_clause_id ON public.clause_notes(clause_id);
 
--- Enable Row Level Security (RLS) and permissive access for hackathon / demo
+-- =========================================================
+-- 6. Row Level Security (RLS) Configuration
+-- =========================================================
+-- SECURITY AUDIT:
+-- Row Level Security MUST remain enabled on all tables to prevent
+-- anonymous client-side key abuse. Without explicit policies, all
+-- operations default to DENIED.
+
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clauses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.analyses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.clause_notes ENABLE ROW LEVEL SECURITY;
 
+-- ── Standard Permissive Demo Policies ─────────────────────────────────────────
+-- Permits read (SELECT) and append (INSERT) for client demonstration.
+-- NOTE: UPDATE and DELETE are NOT granted on documents, clauses, analyses, or
+-- chat_messages, preventing unauthorized modification or tampering of stored records.
 CREATE POLICY "Allow public read documents" ON public.documents FOR SELECT USING (true);
 CREATE POLICY "Allow public insert documents" ON public.documents FOR INSERT WITH CHECK (true);
 
@@ -82,9 +93,18 @@ CREATE POLICY "Allow public insert analyses" ON public.analyses FOR INSERT WITH 
 CREATE POLICY "Allow public read chat_messages" ON public.chat_messages FOR SELECT USING (true);
 CREATE POLICY "Allow public insert chat_messages" ON public.chat_messages FOR INSERT WITH CHECK (true);
 
+-- Clause notes allows users to add and remove their own annotations in the demo UI
 CREATE POLICY "Allow public read clause_notes" ON public.clause_notes FOR SELECT USING (true);
 CREATE POLICY "Allow public insert clause_notes" ON public.clause_notes FOR INSERT WITH CHECK (true);
 CREATE POLICY "Allow public delete clause_notes" ON public.clause_notes FOR DELETE USING (true);
+
+-- ── Optional: Production Authenticated Multi-Tenant Policies ─────────────────
+-- To scope documents strictly to authenticated Supabase users:
+-- 1. Add user_id column: ALTER TABLE public.documents ADD COLUMN user_id UUID REFERENCES auth.users(id);
+-- 2. Drop the public policies: DROP POLICY "Allow public read documents" ON public.documents;
+-- 3. Enforce user ownership:
+--    CREATE POLICY "User read own docs" ON public.documents FOR SELECT USING (auth.uid() = user_id);
+--    CREATE POLICY "User insert own docs" ON public.documents FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- Enable Supabase Realtime subscriptions on chat and notes
 DO $$

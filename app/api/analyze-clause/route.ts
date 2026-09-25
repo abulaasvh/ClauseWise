@@ -8,24 +8,48 @@ import {
   generateRequestId,
   CATEGORY_HTTP_STATUS,
 } from "@/lib/errors";
+import { checkRateLimit, buildRateLimitResponse } from "@/lib/ratelimit";
+import { validateAnalyzeClauseInput } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   const requestId = generateRequestId();
 
-  try {
-    const { documentId, clauseId, sectionNumber, title, text } = await request.json();
+  // ── 1. Per-IP Rate Limiting (60 requests/hour for clause analysis) ──────────
+  const rateLimitResult = checkRateLimit(request, {
+    maxRequests: 60,
+    windowMs: 60 * 60 * 1000,
+    route: "analyze-clause",
+  });
+  if (!rateLimitResult.success) {
+    return buildRateLimitResponse(rateLimitResult, requestId);
+  }
 
-    if (!text || !clauseId) {
+  try {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: "clauseId and text are required for clause analysis." },
+        buildErrorPayload("UNKNOWN", requestId, "Invalid JSON payload in request body."),
         { status: 400 }
       );
     }
 
+    // ── 2. Input Validation ──────────────────────────────────────────────────
+    const validation = validateAnalyzeClauseInput(body);
+    if (!validation.valid) {
+      return NextResponse.json(
+        buildErrorPayload("UNKNOWN", requestId, validation.error),
+        { status: validation.statusCode }
+      );
+    }
+
+    const { documentId, clauseId, sectionNumber, title, text } = validation.data;
+
     const analysis = await analyzeClauseWithClaude(
       clauseId,
-      sectionNumber || "",
-      title || "",
+      sectionNumber,
+      title,
       text
     );
 

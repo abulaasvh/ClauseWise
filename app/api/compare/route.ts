@@ -10,25 +10,50 @@ import {
   generateRequestId,
   CATEGORY_HTTP_STATUS,
 } from "@/lib/errors";
+import { checkRateLimit, buildRateLimitResponse } from "@/lib/ratelimit";
+import { validateCompareInput } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   const requestId = generateRequestId();
-  try {
-    const { docAId, docBId } = await request.json();
 
-    if (!docAId || !docBId) {
+  // ── 1. Per-IP Rate Limiting (20 requests/hour for comparison) ──────────────
+  const rateLimitResult = checkRateLimit(request, {
+    maxRequests: 20,
+    windowMs: 60 * 60 * 1000,
+    route: "compare",
+  });
+  if (!rateLimitResult.success) {
+    return buildRateLimitResponse(rateLimitResult, requestId);
+  }
+
+  try {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: "Both docAId and docBId are required for comparison." },
+        buildErrorPayload("UNKNOWN", requestId, "Invalid JSON payload in request body."),
         { status: 400 }
       );
     }
+
+    // ── 2. Input Validation ──────────────────────────────────────────────────
+    const validation = validateCompareInput(body);
+    if (!validation.valid) {
+      return NextResponse.json(
+        buildErrorPayload("UNKNOWN", requestId, validation.error),
+        { status: validation.statusCode }
+      );
+    }
+
+    const { docAId, docBId } = validation.data;
 
     const docA = getDocument(docAId);
     const docB = getDocument(docBId);
 
     if (!docA || !docB) {
       return NextResponse.json(
-        { error: "One or both documents could not be found." },
+        buildErrorPayload("UNKNOWN", requestId, "One or both documents could not be found in storage."),
         { status: 404 }
       );
     }

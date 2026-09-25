@@ -13,7 +13,7 @@
 
 **Empowering non-lawyers to understand, compare, verify, and negotiate complex legal agreements with confidence.**
 
-[Features](#-key-features) • [Architecture](#-architecture--data-flow) • [Quick Start](#-quick-start) • [Database Setup](#-free-supabase-database-setup) • [Hallucination Audit](#-lettucedetect-hallucination-audit) • [Environment Variables](#-environment-variables) • [Disclaimer](#-legal-disclaimer)
+[Features](#-key-features) • [Architecture](#-architecture--data-flow) • [Quick Start](#-quick-start) • [Testing](#-automated-testing) • [Database Setup](#-free-supabase-database-setup) • [Hallucination Audit](#-lettucedetect-hallucination-audit) • [Environment Variables](#-environment-variables) • [Disclaimer](#-legal-disclaimer)
 
 </div>
 
@@ -196,7 +196,42 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 🗄️ Free Supabase Database Setup
+## 🧪 Automated Testing
+
+ClauseWise includes an automated test suite built with **Jest** and **React Testing Library** verifying the core legal intelligence pipeline (**Parsing → Retrieval → Generation → API Guardrails**):
+
+```bash
+# Run the entire test suite
+npm test
+
+# Run tests in watch mode during development
+npm test -- --watch
+
+# Run a specific test suite
+npm test __tests__/parsing.test.ts
+npm test __tests__/embeddings_vectorstore.test.ts
+npm test __tests__/risk_parser.test.ts
+npm test __tests__/api_routes.test.ts
+```
+
+### Covered Test Suites:
+
+1. **Document Parsing (`__tests__/parsing.test.ts`)**:
+   - Section-aware chunking preserving hierarchy (`Section 1.1`, `Article I`, `(a)`).
+   - Accurate section title extraction and order sequence tracking.
+   - Preamble and recitals detection.
+2. **Retrieval & Vector Store (`__tests__/embeddings_vectorstore.test.ts`)**:
+   - Cosine similarity computation across unit, orthogonal, and opposite vectors.
+   - Semantic ranking of legal clauses against queries (e.g. indemnity queries).
+   - Embedding caching verification (chunks with existing vectors are never re-embedded).
+3. **Risk Categorization JSON Parser (`__tests__/risk_parser.test.ts`)**:
+   - Robust JSON extraction from raw LLM responses with markdown fences or conversational preambles.
+   - Mapping to `{ category, plain_summary, risk_level, risk_reason, key_terms }`.
+   - Guardrail safety filter rewrite verification (rewriting prescriptive advice to advisory language).
+4. **API Route Guardrails (`__tests__/api_routes.test.ts`)**:
+   - `/api/chat` integration: verified shaped response with grounded answers, live citations, and hallucination audits.
+   - Sanitized error handling: verified zero stack traces, file paths, or private API keys leak on provider failure.
+   - `/api/upload` validation: verified strict rejection of invalid executable types (415) and corrupted magic headers (400).
 
 ClauseWise features a dual persistence architecture. You can connect a free Supabase PostgreSQL database for persistent cross-session storage and real-time syncing:
 

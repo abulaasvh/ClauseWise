@@ -11,24 +11,52 @@ import {
   generateRequestId,
   CATEGORY_HTTP_STATUS,
 } from "@/lib/errors";
+import { checkRateLimit, buildRateLimitResponse } from "@/lib/ratelimit";
+import { validateChatInput } from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
   const requestId = generateRequestId();
 
-  try {
-    const { documentId, question } = await request.json();
+  // ── 1. Per-IP Rate Limiting (60 requests/hour for chat) ────────────────────
+  const rateLimitResult = checkRateLimit(request, {
+    maxRequests: 60,
+    windowMs: 60 * 60 * 1000,
+    route: "chat",
+  });
+  if (!rateLimitResult.success) {
+    return buildRateLimitResponse(rateLimitResult, requestId);
+  }
 
-    if (!documentId || !question || !question.trim()) {
+  try {
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
       return NextResponse.json(
-        { error: "documentId and question are required." },
+        buildErrorPayload("UNKNOWN", requestId, "Invalid JSON payload in request body."),
         { status: 400 }
       );
     }
 
+    // ── 2. Input Validation ──────────────────────────────────────────────────
+    const validation = validateChatInput(body);
+    if (!validation.valid) {
+      return NextResponse.json(
+        buildErrorPayload("UNKNOWN", requestId, validation.error),
+        { status: validation.statusCode }
+      );
+    }
+
+    const { documentId, question } = validation.data;
+
     const doc = await getDocumentAsync(documentId);
     if (!doc) {
       return NextResponse.json(
-        { error: "Document not found in storage. Please re-open or re-upload the document." },
+        buildErrorPayload(
+          "UNKNOWN",
+          requestId,
+          "Document not found in storage. Please re-open or re-upload the document."
+        ),
         { status: 404 }
       );
     }

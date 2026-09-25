@@ -279,10 +279,16 @@ export async function getQueryEmbedding(text: string): Promise<number[] | null> 
     return openAiEmb;
   }
 
-  // 4. If ALL embedding options fail for the query, throw a typed error so the
-  //    route catch block can classify it correctly as EMBEDDING_FAILED.
+  // 4. Fallback: local normalized vectorizer (matches getEmbedding fallback)
+  const local = generateLocalEmbedding(clean);
+  if (local && local.length > 0) {
+    embeddingCache.set(clean, local);
+    return local;
+  }
+
+  // 5. If ALL options fail, throw a typed error for the route catch block
   throw new Error(
-    "EMBEDDING_FAILED: Query embedding failed after all providers (Gemini, Voyage, OpenAI) returned null."
+    "EMBEDDING_FAILED: Query embedding failed after all providers returned null."
   );
 }
 

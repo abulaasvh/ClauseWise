@@ -196,7 +196,7 @@ function CompareContent() {
           <div>
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink-navy text-white">
-                <GitCompare className="h-4 w-4" />
+                <GitCompare className="h-4 w-4" aria-hidden="true" />
               </span>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-ink-navy font-headline">
                 Two-Document Comparison Mode
@@ -482,7 +482,8 @@ function CompareSlot({
           <button
             type="button"
             onClick={onClearDoc}
-            className="text-xs text-slate-500 hover:text-slate-800 underline font-medium"
+            aria-label={`Change selected ${slotLabel} document`}
+            className="text-xs text-slate-500 hover:text-slate-800 underline font-medium focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none rounded"
           >
             Change
           </button>
@@ -531,9 +532,11 @@ function CompareSlot({
         /* IF NO DOCUMENT SELECTED: TABBED INTERFACE (UPLOAD VS CHOOSE EXISTING) */
         <div className="flex-1 flex flex-col">
           {/* TABS HEADER */}
-          <div className="flex items-center gap-2 mb-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
+          <div className="flex items-center gap-2 mb-3 bg-slate-50 p-1 rounded-lg border border-slate-200" role="tablist" aria-label="Document selection mode">
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "upload"}
               onClick={() => setActiveTab("upload")}
               className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-semibold transition ${
                 activeTab === "upload"
@@ -541,12 +544,14 @@ function CompareSlot({
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
-              <FileUp className="h-3.5 w-3.5" />
+              <FileUp className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Upload New File</span>
             </button>
 
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === "select"}
               onClick={() => setActiveTab("select")}
               className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-semibold transition ${
                 activeTab === "select"
@@ -554,7 +559,7 @@ function CompareSlot({
                   : "text-slate-500 hover:text-slate-800"
               }`}
             >
-              <Files className="h-3.5 w-3.5" />
+              <Files className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Choose Existing ({availableDocs.length})</span>
             </button>
           </div>

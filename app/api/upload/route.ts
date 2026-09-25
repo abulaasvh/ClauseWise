@@ -4,48 +4,92 @@ import { fallbackClauseAnalysis } from "@/lib/claude";
 import { saveDocument } from "@/lib/docstore";
 import { getVectorStore } from "@/lib/vectorstore";
 import { ClauseAnalysis, ParsedDocument } from "@/lib/types";
+import {
+  generateRequestId,
+  buildErrorPayload,
+  buildErrorResponse,
+} from "@/lib/errors";
+import { checkRateLimit, buildRateLimitResponse } from "@/lib/ratelimit";
+import {
+  validateUploadFile,
+  validateFileMagicBytes,
+} from "@/lib/validation";
 
 export async function POST(request: NextRequest) {
+  const requestId = generateRequestId();
+
+  // ── 1. Per-IP Rate Limiting (20 requests/hour for uploads) ─────────────────
+  const rateLimitResult = checkRateLimit(request, {
+    maxRequests: 20,
+    windowMs: 60 * 60 * 1000,
+    route: "upload",
+  });
+  if (!rateLimitResult.success) {
+    return buildRateLimitResponse(rateLimitResult, requestId);
+  }
+
   try {
-    const formData = await request.formData();
-    const file = formData.get("file") as File | null;
-    const directText = formData.get("text") as string | null;
-    const documentName = (formData.get("title") as string | null) || "Uploaded Document";
-
-    let rawText = "";
-    let fileName = file ? file.name : `${documentName}.txt`;
-    let fileType: "pdf" | "docx" | "text" = "text";
-
-    if (file) {
-      const lowerName = file.name.toLowerCase();
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-
-      if (lowerName.endsWith(".pdf")) {
-        fileType = "pdf";
-        const res = await parsePdfBuffer(buffer);
-        rawText = res.text;
-      } else if (lowerName.endsWith(".docx")) {
-        fileType = "docx";
-        const res = await parseDocxBuffer(buffer);
-        rawText = res.text;
-      } else {
-        fileType = "text";
-        rawText = buffer.toString("utf-8");
-      }
-    } else if (directText && directText.trim()) {
-      rawText = directText;
-      fileType = "text";
-    } else {
+    let formData: FormData;
+    try {
+      formData = await request.formData();
+    } catch {
       return NextResponse.json(
-        { error: "No document file or text content provided." },
+        buildErrorPayload("UNKNOWN", requestId, "Invalid multipart form data."),
         { status: 400 }
       );
     }
 
+    const file = formData.get("file") as File | null;
+    const directText = formData.get("text") as string | null;
+    const rawTitle = formData.get("title") as string | null;
+    const documentName = (rawTitle && rawTitle.slice(0, 200).trim()) || "Uploaded Document";
+
+    // ── 2. Input Validation: File size, MIME type, Extension ──────────────────
+    const fileValidation = validateUploadFile(file, directText);
+    if (!fileValidation.valid) {
+      return NextResponse.json(
+        buildErrorPayload("UNKNOWN", requestId, fileValidation.error),
+        { status: fileValidation.statusCode }
+      );
+    }
+
+    let rawText = "";
+    let fileName = file ? fileValidation.data.fileName : `${documentName}.txt`;
+    const fileType = fileValidation.data.fileType;
+
+    if (file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      // Validate magic bytes to verify content matches declared type
+      const magicCheck = validateFileMagicBytes(buffer, fileType);
+      if (!magicCheck.valid) {
+        return NextResponse.json(
+          buildErrorPayload("UNKNOWN", requestId, magicCheck.error),
+          { status: magicCheck.statusCode }
+        );
+      }
+
+      if (fileType === "pdf") {
+        const res = await parsePdfBuffer(buffer);
+        rawText = res.text;
+      } else if (fileType === "docx") {
+        const res = await parseDocxBuffer(buffer);
+        rawText = res.text;
+      } else {
+        rawText = buffer.toString("utf-8");
+      }
+    } else if (directText && directText.trim()) {
+      rawText = directText.trim();
+    }
+
     if (!rawText || rawText.trim().length === 0) {
       return NextResponse.json(
-        { error: "Could not extract readable text from this document." },
+        buildErrorPayload(
+          "UNKNOWN",
+          requestId,
+          "Could not extract readable text from this document."
+        ),
         { status: 422 }
       );
     }
@@ -54,7 +98,11 @@ export async function POST(request: NextRequest) {
     const chunks = chunkDocumentText(rawText);
     if (chunks.length === 0) {
       return NextResponse.json(
-        { error: "Document is empty or could not be partitioned into clauses." },
+        buildErrorPayload(
+          "UNKNOWN",
+          requestId,
+          "Document is empty or could not be partitioned into clauses."
+        ),
         { status: 422 }
       );
     }
@@ -111,10 +159,6 @@ export async function POST(request: NextRequest) {
       document: doc,
     });
   } catch (error) {
-    console.error("Upload route error:", error);
-    return NextResponse.json(
-      { error: (error as Error).message || "Failed to process document." },
-      { status: 500 }
-    );
+    return buildErrorResponse(error, requestId, "Upload");
   }
 }

@@ -136,16 +136,21 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-xs"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="checklist-modal-title"
+    >
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col rounded-xl border border-slate-200 bg-white shadow-2xl">
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-900 text-white">
-              <FileCheck className="h-5 w-5" />
+              <FileCheck className="h-5 w-5" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">
+              <h3 id="checklist-modal-title" className="text-base font-semibold text-slate-900">
                 Action Checklist & Legal Review Items
               </h3>
               <p className="text-xs text-slate-500">
@@ -157,9 +162,10 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
           <button
             onClick={onClose}
             type="button"
-            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition"
+            aria-label="Close action checklist dialog"
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
           >
-            <X className="h-5 w-5" />
+            <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
@@ -176,7 +182,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
           {/* SECTION 1: QUESTIONS TO ASK A LAWYER */}
           <div>
             <div className="flex items-center gap-2 pb-2 mb-3 border-b border-slate-100">
-              <HelpCircle className="h-4 w-4 text-slate-700" />
+              <HelpCircle className="h-4 w-4 text-slate-700" aria-hidden="true" />
               <h4 className="text-sm font-semibold text-slate-900">
                 1. Questions to Ask Your Attorney
               </h4>
@@ -194,6 +200,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
                   >
                     <input
                       type="checkbox"
+                      aria-label={`Reviewed attorney question for ${q.clause}`}
                       className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                     />
                     <div className="flex-1">
@@ -211,7 +218,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
           {/* SECTION 2: DEADLINES TO TRACK */}
           <div>
             <div className="flex items-center gap-2 pb-2 mb-3 border-b border-slate-100">
-              <Calendar className="h-4 w-4 text-slate-700" />
+              <Calendar className="h-4 w-4 text-slate-700" aria-hidden="true" />
               <h4 className="text-sm font-semibold text-slate-900">
                 2. Deadlines, Notice Windows & Milestones
               </h4>
@@ -229,6 +236,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
                   >
                     <input
                       type="checkbox"
+                      aria-label={`Reviewed deadline: ${d.section} — ${d.title}`}
                       className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
                     />
                     <div className="flex-1">
@@ -251,7 +259,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
           {/* SECTION 3: CLAUSES TO NEGOTIATE */}
           <div>
             <div className="flex items-center gap-2 pb-2 mb-3 border-b border-slate-100">
-              <FileCheck className="h-4 w-4 text-slate-700" />
+              <FileCheck className="h-4 w-4 text-slate-700" aria-hidden="true" />
               <h4 className="text-sm font-semibold text-slate-900">
                 3. Clauses Recommended for Commercial Negotiation
               </h4>
@@ -269,6 +277,7 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
                   >
                     <input
                       type="checkbox"
+                      aria-label={`Reviewed negotiation point: ${n.section} (${n.title})`}
                       className="mt-0.5 h-3.5 w-3.5 rounded border-rose-300 text-rose-900 focus:ring-rose-900"
                     />
                     <div className="flex-1">
@@ -289,9 +298,10 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
           <button
             onClick={handleCopy}
             type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+            aria-label={copied ? "Checklist copied to clipboard" : "Copy checklist to clipboard"}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
           >
-            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
             <span>{copied ? "Copied" : "Copy to Clipboard"}</span>
           </button>
 
@@ -299,17 +309,19 @@ export const ChecklistModal: React.FC<ChecklistModalProps> = ({
             <button
               onClick={handlePrint}
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition"
+              aria-label="Print or save checklist as PDF"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
             >
-              <Printer className="h-3.5 w-3.5" />
+              <Printer className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Print / PDF</span>
             </button>
             <button
               onClick={handleDownloadTxt}
               type="button"
-              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-800 transition"
+              aria-label="Download checklist as plain text file"
+              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-800 transition focus-visible:ring-2 focus-visible:ring-teal-600 focus-visible:outline-none"
             >
-              <Download className="h-3.5 w-3.5" />
+              <Download className="h-3.5 w-3.5" aria-hidden="true" />
               <span>Download Plain Text (.txt)</span>
             </button>
           </div>

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAllDocuments } from "@/lib/docstore";
+import { generateRequestId, buildErrorResponse } from "@/lib/errors";
 
 export async function GET() {
+  const requestId = generateRequestId();
+
   try {
     const docs = getAllDocuments();
     return NextResponse.json({
@@ -14,6 +17,6 @@ export async function GET() {
       })),
     });
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return buildErrorResponse(error, requestId, "DocumentsList");
   }
 }
