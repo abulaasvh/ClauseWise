@@ -211,9 +211,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         role: "assistant",
         content: userMessageText,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        isError: true,
+        isApiError: true,
         errorCategory: category,
-        requestId,
+        errorRequestId: requestId,
       };
 
       setMessages((prev) => [...prev, errorMessage]);
@@ -301,12 +301,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 className={`max-w-[88%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
                   isUser
                     ? "bg-slate-900 text-white"
-                    : msg.isError
+                    : msg.isApiError
                     ? "bg-amber-50 text-amber-950 border border-amber-300"
                     : "bg-slate-100 text-slate-900 border border-slate-200"
                 }`}
               >
-                {msg.isError ? (
+                {msg.isApiError ? (
                   <div className="space-y-2">
                     <div className="flex items-start gap-1.5">
                       <AlertTriangle className="h-3.5 w-3.5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
@@ -314,9 +314,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     </div>
 
                     <div className="flex items-center justify-between pt-1 border-t border-amber-200 text-[10px]">
-                      {msg.requestId && (
+                      {msg.errorRequestId && (
                         <span className="font-mono text-amber-900">
-                          Ref: {msg.requestId}
+                          Ref: {msg.errorRequestId}
                         </span>
                       )}
                       <button
