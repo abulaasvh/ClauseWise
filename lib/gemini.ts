@@ -70,12 +70,20 @@ export interface LLMGenerationResult {
   provider: "Gemini" | "Groq" | "OpenAI";
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => {
+      clearTimeout(timeout);
+      reject(new DOMException("The operation was aborted", "AbortError"));
+    }, { once: true });
+  });
 
 export interface ResilientLLMOptions {
   jsonMode?: boolean;
   maxRetries?: number;
   backoffDelays?: number[];
+  timeoutMs?: number;
 }
 
 /**
@@ -85,8 +93,9 @@ async function callGeminiWithRetry(
   systemInstruction: string,
   userPrompt: string,
   apiKey: string,
-  maxRetries: number = 2,
-  backoffDelays: number[] = [1000, 2000]
+  maxRetries: number = 1,
+  backoffDelays: number[] = [1000],
+  signal?: AbortSignal
 ): Promise<string | null> {
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -96,6 +105,7 @@ async function callGeminiWithRetry(
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           systemInstruction: {
             parts: [{ text: systemInstruction }],
@@ -133,7 +143,7 @@ async function callGeminiWithRetry(
         console.warn(
           `[Gemini] Status ${res.status} ("${errText.slice(0, 80)}"). Retrying in ${delay / 1000}s (retry ${attempt + 1} of ${maxRetries})...`
         );
-        await sleep(delay);
+        await sleep(delay, signal);
         continue;
       }
 
@@ -145,7 +155,7 @@ async function callGeminiWithRetry(
         console.warn(
           `[Gemini] Network error (${(err as Error).message}). Retrying in ${delay / 1000}s (retry ${attempt + 1} of ${maxRetries})...`
         );
-        await sleep(delay);
+        await sleep(delay, signal);
         continue;
       }
       console.warn("[Gemini] Invocations exhausted:", err);
@@ -163,7 +173,8 @@ async function callGroqFallback(
   systemInstruction: string,
   userPrompt: string,
   apiKey: string,
-  jsonMode: boolean = false
+  jsonMode: boolean = false,
+  signal?: AbortSignal
 ): Promise<string | null> {
   const modelsToTry = [
     "llama-3.3-70b-versatile",
@@ -184,7 +195,7 @@ async function callGroqFallback(
           ],
           temperature: 0.3,
           ...(jsonMode ? { response_format: { type: "json_object" } } : {}),
-        });
+        }, { signal });
 
         const text = completion.choices[0]?.message?.content;
         if (text) return text;
@@ -210,19 +221,20 @@ async function callGroqFallback(
 
 /**
  * Unified generation function with:
- * 1. Gemini primary with up to 2 retries on 429/503 (1s, 2s backoff)
+ * 1. Gemini primary with one retry on 429/503 (1s flat backoff)
  * 2. Groq fallback (llama-3.3-70b-versatile)
  * 3. Provider logging
  * 4. Throws error if both fail (stops fake 200 responses)
  */
-export async function generateWithResilientLLM(
+async function generateWithResilientLLMInternal(
   systemInstruction: string,
   userPrompt: string,
-  options?: ResilientLLMOptions
+  options: ResilientLLMOptions | undefined,
+  signal: AbortSignal
 ): Promise<LLMGenerationResult> {
   const geminiKey = getGeminiApiKey();
-  const maxRetries = options?.maxRetries ?? 2;
-  const backoffDelays = options?.backoffDelays ?? [1000, 2000];
+  const maxRetries = options?.maxRetries ?? 1;
+  const backoffDelays = options?.backoffDelays ?? [1000];
 
   if (geminiKey) {
     const geminiText = await callGeminiWithRetry(
@@ -230,7 +242,8 @@ export async function generateWithResilientLLM(
       userPrompt,
       geminiKey,
       maxRetries,
-      backoffDelays
+      backoffDelays,
+      signal
     );
     if (geminiText) {
       console.log("[LLM] Answered by: Gemini");
@@ -248,7 +261,7 @@ export async function generateWithResilientLLM(
   if (groqKey) {
     const isJson =
       options?.jsonMode ?? /return only valid json|respond only with valid json/i.test(systemInstruction);
-    const groqText = await callGroqFallback(systemInstruction, userPrompt, groqKey, isJson);
+    const groqText = await callGroqFallback(systemInstruction, userPrompt, groqKey, isJson, signal);
     if (groqText) {
       console.log("[LLM] Answered by: Groq");
       return {
@@ -260,6 +273,32 @@ export async function generateWithResilientLLM(
 
   console.error("[LLM] Both Gemini and Groq fallback failed to produce a response.");
   throw new Error("ALL_PROVIDERS_DOWN: All configured AI providers (Gemini, Groq) failed to produce a response.");
+}
+
+export async function generateWithResilientLLM(
+  systemInstruction: string,
+  userPrompt: string,
+  options?: ResilientLLMOptions
+): Promise<LLMGenerationResult> {
+  const timeoutMs = options?.timeoutMs ?? 8000;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error("LLM_TIMEOUT: AI service temporarily unavailable."));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([
+      generateWithResilientLLMInternal(systemInstruction, userPrompt, options, controller.signal),
+      timeoutPromise,
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 /**

@@ -128,6 +128,7 @@ export function classifyError(
   // All providers exhausted (typed prefix from lib/gemini.ts)
   if (
     combined.includes("all_providers_down") ||
+    combined.includes("llm_timeout") ||
     combined.includes("all ai services") ||
     combined.includes("both gemini and groq")
   ) {

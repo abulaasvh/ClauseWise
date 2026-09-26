@@ -213,7 +213,7 @@ export async function analyzeClauseWithClaude(
     }
   }
 
-  // Resilient LLM: Gemini (with 429/503 retries) -> Groq fallback (llama-3.3-70b-versatile)
+  // Resilient LLM: Gemini (one 429/503 retry) -> Groq fallback
   try {
     const result = await generateWithResilientLLM(
       CLAUSE_SIMPLIFICATION_SYSTEM_PROMPT,

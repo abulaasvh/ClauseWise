@@ -87,6 +87,7 @@ export class InMemoryVectorStore {
     let cachedCount = 0;
     let newCount = 0;
     const newRecords: VectorRecord[] = [];
+    const uncachedChunks: ClauseChunk[] = [];
 
     for (const chunk of uniqueChunks) {
       // 1. Check if chunk already has a stored vector
@@ -105,12 +106,24 @@ export class InMemoryVectorStore {
         continue;
       }
 
-      // 3. Compute new embedding only when not cached
-      const textToEmbed = `${chunk.sectionNumber || ""} ${chunk.title || ""}: ${chunk.text}`;
-      const embedding = await getEmbedding(textToEmbed);
-      chunk.embedding = embedding;
-      newRecords.push({ chunk, embedding });
-      newCount++;
+      uncachedChunks.push(chunk);
+    }
+
+    // Limit concurrent provider requests while avoiding sequential upload latency.
+    for (let index = 0; index < uncachedChunks.length; index += 5) {
+      const batch = uncachedChunks.slice(index, index + 5);
+      const embeddings = await Promise.all(
+        batch.map((chunk) =>
+          getEmbedding(`${chunk.sectionNumber || ""} ${chunk.title || ""}: ${chunk.text}`)
+        )
+      );
+
+      embeddings.forEach((embedding, batchIndex) => {
+        const chunk = batch[batchIndex];
+        chunk.embedding = embedding;
+        newRecords.push({ chunk, embedding });
+      });
+      newCount += batch.length;
     }
 
     // Atomically set records to prevent partial or duplicate states
